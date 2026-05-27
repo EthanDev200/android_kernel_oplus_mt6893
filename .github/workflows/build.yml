@@ -6,40 +6,62 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - name: Checkout Kernel
-        uses: actions/checkout@v4
-        with:
-          repository: EthanDev200/android_kernel_oplus_mt6893
-          ref: lineage-23.2
-          path: kernel
-          fetch-depth: 0
+    - name: Checkout Kernel
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+        path: kernel
 
-      - name: Install Dependencies
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y bc bison build-essential curl flex gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi git gnupg gperf libncurses5-dev libssl-dev python2 python3 zip zlib1g-dev libelf-dev
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y bc bison build-essential curl flex gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi git gnupg gperf libncurses5-dev libssl-dev python2 python3 zip zlib1g-dev libelf-dev
 
-      - name: Add BPF Config
-        run: |
-          echo "CONFIG_BPF=y" >> kernel/arch/arm64/configs/cupida_defconfig
-          echo "CONFIG_BPF_SYSCALL=y" >> kernel/arch/arm64/configs/cupida_defconfig
-          echo "CONFIG_BPF_JIT=y" >> kernel/arch/arm64/configs/cupida_defconfig
-          echo "CONFIG_DEBUG_INFO_BTF=y" >> kernel/arch/arm64/configs/cupida_defconfig
-          echo "CONFIG_BPF_EVENTS=y" >> kernel/arch/arm64/configs/cupida_defconfig
-          echo "CONFIG_BPF_RINGBUF=y" >> kernel/arch/arm64/configs/cupida_defconfig
-          echo "CONFIG_BPF_LINK=y" >> kernel/arch/arm64/configs/cupida_defconfig
-          echo "CONFIG_CGROUP_BPF=y" >> kernel/arch/arm64/configs/cupida_defconfig
+    - name: Add BPF Config
+      run: |
+        echo "CONFIG_BPF=y" >> kernel/arch/arm64/configs/cupida_defconfig
+        echo "CONFIG_BPF_SYSCALL=y" >> kernel/arch/arm64/configs/cupida_defconfig
+        echo "CONFIG_BPF_JIT=y" >> kernel/arch/arm64/configs/cupida_defconfig
+        echo "CONFIG_DEBUG_INFO_BTF=y" >> kernel/arch/arm64/configs/cupida_defconfig
+        echo "CONFIG_BPF_EVENTS=y" >> kernel/arch/arm64/configs/cupida_defconfig
+        echo "CONFIG_BPF_RINGBUF=y" >> kernel/arch/arm64/configs/cupida_defconfig
+        echo "CONFIG_BPF_LINK=y" >> kernel/arch/arm64/configs/cupida_defconfig
+        echo "CONFIG_CGROUP_BPF=y" >> kernel/arch/arm64/configs/cupida_defconfig
 
-      - name: Build Kernel
-        working-directory: kernel
-        run: |
-          git clone --depth 1 https://github.com/kdrag0n/proton-clang.git toolchain
-          export PATH=$PWD/toolchain/bin:$PATH
-          make ARCH=arm64 cupida_defconfig
-          make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu-
+    - name: Set up Proton Clang
+      run: |
+        mkdir -p $GITHUB_WORKSPACE/toolchain
+        git clone --depth=1 https://github.com/kdrag0n/proton-clang.git $GITHUB_WORKSPACE/toolchain/proton-clang
 
-      - name: Upload Image.gz-dtb
-        uses: actions/upload-artifact@v4
-        with:
-          name: Image.gz-dtb
-          path: kernel/arch/arm64/boot/Image.gz-dtb
+    - name: Build Kernel
+      working-directory: kernel
+      env:
+        TOOLCHAIN: ${{ github.workspace }}/toolchain/proton-clang
+      run: |
+        bash build_kernel.sh
+
+    - name: Show errors on failure
+      if: failure()
+      run: grep -E "error:|fatal error:" build.log | head -30
+
+    - name: Print build log on failure
+      if: failure()
+      run: tail -100 build.log
+
+    - name: Upload Image.gz-dtb
+      uses: actions/upload-artifact@v4
+      with:
+        name: Image.gz-dtb
+        path: kernel/out/arch/arm64/boot/Image.gz-dtb
+
+    - name: Prepare AnyKernel3
+      run: |
+        git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git
+        cp kernel/out/arch/arm64/boot/Image.gz-dtb AnyKernel3/
+        rm -rf AnyKernel3/.git
+
+    - name: Upload Flashable Zip
+      uses: actions/upload-artifact@v4
+      with:
+        name: MT6893_BPF_Kernel
+        path: AnyKernel3/
