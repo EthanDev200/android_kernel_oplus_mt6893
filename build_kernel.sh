@@ -4,11 +4,11 @@
 ARCH=arm64
 SUBARCH=arm64
 DEFCONFIG=cupida_defconfig
-# 适配GitHub Actions工具链路径
 TOOLCHAIN=${TOOLCHAIN:-$GITHUB_WORKSPACE/toolchain/proton-clang}
-# 修改编译署名（自定义标识，可自行修改）
 KBUILD_BUILD_USER=EthanDev200
 KBUILD_BUILD_HOST=MT6893-Builder
+BPF_REPO=https://github.com/EthanDev200/Bpf_kernel_oplus_MT6893
+BPF_BRANCH=main
 
 # Cross tools variables using absolute paths
 CLANG=$TOOLCHAIN/bin/clang
@@ -23,8 +23,16 @@ STRIP=$TOOLCHAIN/bin/llvm-strip
 echo "Cleaning out directory..."
 rm -rf out
 
-# Step 2: Configure and build host tools
-echo "Step 1: Configuring and building scripts..."
+# Step 2: Supplement missing drvgen files
+if [ ! -d "scripts/drvgen" ]; then
+    echo "Download missing scripts/drvgen files"
+    git clone --depth 1 --branch ${BPF_BRANCH} ${BPF_REPO} tmp_bpf_kernel
+    cp -r tmp_bpf_kernel/scripts/drvgen scripts/
+    rm -rf tmp_bpf_kernel
+fi
+
+# Step 3: Configure kernel
+echo "Configuring kernel"
 make ARCH=$ARCH O=out \
     CC="$CLANG" \
     HOSTCC=/usr/bin/gcc \
@@ -33,16 +41,18 @@ make ARCH=$ARCH O=out \
     CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
     $DEFCONFIG
 
+# Step 4: Build drvgen tool
+echo "Build drvgen tool"
 make ARCH=$ARCH O=out \
     CC="$CLANG" \
     HOSTCC=/usr/bin/gcc \
     HOSTCXX=/usr/bin/g++ \
     CROSS_COMPILE=aarch64-linux-gnu- \
     CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-    scripts -j$(nproc --all)
+    scripts/drvgen -j$(nproc --all)
 
-# Step 3: Build the kernel using Toolchain
-echo "Step 2: Compiling kernel with Proton Clang..."
+# Step 5: Full kernel build include dtbs
+echo "Start full kernel compilation"
 make ARCH=$ARCH SUBARCH=$SUBARCH O=out \
     CC="$CLANG" \
     LD="$LD" \
@@ -57,10 +67,11 @@ make ARCH=$ARCH SUBARCH=$SUBARCH O=out \
     HOSTCXX=/usr/bin/g++ \
     -j$(nproc --all) 2>&1 | tee build.log
 
+# Check build result
 if [ -f "out/arch/arm64/boot/Image.gz-dtb" ]; then
-    echo "--- Build Success ---"
+    echo "Build Success"
     echo "Output: out/arch/arm64/boot/Image.gz-dtb"
 else
-    echo "--- Build Failed ---"
+    echo "Build Failed"
     exit 1
 fi
