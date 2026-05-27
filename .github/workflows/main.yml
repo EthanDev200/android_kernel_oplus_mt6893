@@ -1,0 +1,59 @@
+name: MT6893 BPF Kernel Build
+on: workflow_dispatch
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout Kernel
+        uses: actions/checkout@v4
+        with:
+          repository: EthanDev200/android_kernel_oplus_mt6893
+          ref: lineage-23.2
+          path: kernel
+          fetch-depth: 0
+          submodules: true
+
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y bc bison build-essential curl flex gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi git gnupg gperf libncurses5-dev libssl-dev python2 python3 zip zlib1g-dev libelf-dev
+
+      - name: Add BPF Config
+        run: |
+          echo "CONFIG_BPF=y" >> kernel/arch/arm64/configs/cupida_defconfig
+          echo "CONFIG_BPF_SYSCALL=y" >> kernel/arch/arm64/configs/cupida_defconfig
+          echo "CONFIG_BPF_JIT=y" >> kernel/arch/arm64/configs/cupida_defconfig
+          echo "CONFIG_BPF_JIT_DEFAULT_ON=y" >> kernel/arch/arm64/configs/cupida_defconfig
+          echo "CONFIG_DEBUG_INFO_BTF=y" >> kernel/arch/arm64/configs/cupida_defconfig
+          echo "CONFIG_BPF_EVENTS=y" >> kernel/arch/arm64/configs/cupida_defconfig
+          echo "CONFIG_BPF_RINGBUF=y" >> kernel/arch/arm64/configs/cupida_defconfig
+          echo "CONFIG_BPF_LINK=y" >> kernel/arch/arm64/configs/cupida_defconfig
+          echo "CONFIG_CGROUP_BPF=y" >> kernel/arch/arm64/configs/cupida_defconfig
+
+      - name: Cherry-pick BPF Patches
+        working-directory: kernel
+        run: |
+          git remote add mi8937 https://github.com/Mi8937/msm-4.19.git
+          git fetch mi8937 5.15-bpf
+          git config user.name "Actions-Builder"
+          git config user.email "builder@local.dev"
+          git cherry-pick 7f9b3c2 9e2d1a7 3c8b72f d29e4f0
+
+      - name: Clone Toolchain
+        run: |
+          git clone --depth 1 https://github.com/kdrag0n/proton-clang.git toolchain
+          echo "PATH=${PWD}/toolchain/bin:$PATH" >> $GITHUB_PATH
+
+      - name: Build Kernel
+        working-directory: kernel
+        run: |
+          export PATH=$GITHUB_WORKSPACE/toolchain/bin:$PATH
+          make ARCH=arm64 cupida_defconfig
+          make -j$(nproc) ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu-
+
+      - name: Upload Image.gz-dtb
+        uses: actions/upload-artifact@v4
+        with:
+          name: Image.gz-dtb
+          path: kernel/arch/arm64/boot/Image.gz-dtb
