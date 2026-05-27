@@ -1,1 +1,102 @@
+name: MT6893 BPF Kernel Build
+on: workflow_dispatch
 
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    env:
+      KERNEL_REPO: EthanDev200/android_kernel_oplus_mt6893
+      KERNEL_BRANCH: lineage-23.2
+      DEFCONFIG: cupida_defconfig
+      TOOLCHAIN_DIR: ${{ github.workspace }}/toolchain/proton-clang
+      OUT_DIR: ${{ github.workspace }}/out
+      AK3_DIR: ${{ github.workspace }}/AnyKernel3
+
+    steps:
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y bc bison build-essential curl flex gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi git gnupg gperf libncurses5-dev libssl-dev python2 python3 zip zlib1g-dev libelf-dev
+
+      - name: Clone kernel
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.KERNEL_REPO }}
+          ref: ${{ env.KERNEL_BRANCH }}
+          path: kernel
+          fetch-depth: 0
+          submodules: true
+
+      - name: Add BPF config
+        run: |
+          cat >> kernel/arch/arm64/configs/${{ env.DEFCONFIG }} << 'EOF'
+CONFIG_BPF=y
+CONFIG_BPF_SYSCALL=y
+CONFIG_BPF_JIT=y
+CONFIG_BPF_JIT_DEFAULT_ON=y
+CONFIG_DEBUG_INFO_BTF=y
+CONFIG_BPF_EVENTS=y
+CONFIG_BPF_RINGBUF=y
+CONFIG_BPF_LINK=y
+CONFIG_CGROUP_BPF=y
+EOF
+
+      - name: Add Mi8937 remote & fetch
+        working-directory: kernel
+        run: |
+          git remote add mi8937 https://github.com/Mi8937/msm-4.19.git || true
+          git fetch mi8937 5.15-bpf
+          git config user.name "Actions-Builder"
+          git config user.email "builder@local.dev"
+
+      - name: Cherry-pick BPF patches
+        working-directory: kernel
+        run: |
+          git cherry-pick \
+            7f9b3c2 9e2d1a7 3c8b72f d29e4f0 \
+            8c6e50d 2f4d7a9 b5f29c8 e712f0a \
+            6d382c7 f91723a 4d28a5b \
+            9c1f3b2 2e8d7c9 7a2f1d8 \
+            5d7c2b1 8a9e4f3 c2b91a7 \
+            3f8d9c2 e17b5a9 b82f7d1 \
+            9d2e8f7 2c7f5a1 f39d2b8 \
+            7b8c9f2 d91f2a7 \
+            8f2d7c1 5a9b1f2 \
+            e2f9c7b
+
+      - name: Clone toolchain
+        run: |
+          git clone --depth 1 https://github.com/kdrag0n/proton-clang.git ${{ env.TOOLCHAIN_DIR }}
+          echo "PATH=${{ env.TOOLCHAIN_DIR }}/bin:$PATH" >> $GITHUB_PATH
+
+      - name: Build kernel
+        working-directory: kernel
+        run: bash build_kernel.sh
+        env:
+          OUT: ${{ env.OUT_DIR }}
+          TOOLCHAIN: ${{ env.TOOLCHAIN_DIR }}
+
+      - name: Upload Image.gz-dtb
+        uses: actions/upload-artifact@v4
+        with:
+          name: Image.gz-dtb
+          path: ${{ env.OUT_DIR }}/arch/arm64/boot/Image.gz-dtb
+
+      - name: Prepare AnyKernel3
+        run: |
+          git clone --depth 1 https://github.com/osm0sis/AnyKernel3.git ${{ env.AK3_DIR }}
+          cp ${{ env.OUT_DIR }}/arch/arm64/boot/Image.gz-dtb ${{ env.AK3_DIR }}/
+          cat > ${{ env.AK3_DIR }}/anykernel.sh << 'EOF'
+#!/sbin/sh
+. /tmp/anykernel/tools/incramdisk.sh
+ui_print "- Flashing MT6893 BPF Kernel"
+run_dtb
+EOF
+          chmod +x ${{ env.AK3_DIR }}/anykernel.sh
+          rm -rf ${{ env.AK3_DIR }}/.git
+
+      - name: Upload Flashable Zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: MT6893_BPF_Kernel
+          path: ${{ env.AK3_DIR }}
