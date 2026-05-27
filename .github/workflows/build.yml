@@ -1,6 +1,6 @@
 name: MT6893 BPF Kernel Build
 on:
-  workflow_dispatch
+  workflow_dispatch:
 
 jobs:
   build:
@@ -9,8 +9,6 @@ jobs:
     - name: Checkout Kernel Source
       uses: actions/checkout@v4
       with:
-        repository: EthanDev200/android_kernel_oplus_mt6893
-        ref: lineage-23.2
         submodules: recursive
 
     - name: Install Build Dependencies
@@ -30,12 +28,13 @@ jobs:
         mkdir -p $GITHUB_WORKSPACE/toolchain
         git clone --depth=1 https://github.com/kdrag0n/proton-clang.git $GITHUB_WORKSPACE/toolchain/proton-clang
 
-    - name: Build Kernel via Script
+    - name: Add execute permission
+      run: chmod +x build_kernel.sh
+
+    - name: Build Kernel
       env:
         TOOLCHAIN: ${{ github.workspace }}/toolchain/proton-clang
-      run: |
-        chmod +x build_kernel.sh
-        ./build_kernel.sh
+      run: ./build_kernel.sh
 
     - name: Extract Error Log
       if: failure()
