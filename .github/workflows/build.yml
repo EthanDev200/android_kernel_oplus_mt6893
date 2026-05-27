@@ -6,58 +6,55 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-    - name: Checkout Kernel
+    - name: Checkout Kernel Source
       uses: actions/checkout@v4
       with:
+        repository: EthanDev200/android_kernel_oplus_mt6893
+        ref: lineage-23.2
         submodules: recursive
-        path: kernel
 
-    - name: Install dependencies
+    - name: Install Build Dependencies
       run: |
-        sudo apt-get update
+        sudo apt-get update -y
         sudo apt-get install -y bc bison build-essential curl flex gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi git gnupg gperf libncurses5-dev libssl-dev python2 python3 zip zlib1g-dev libelf-dev
 
-    - name: Add BPF Config
+    - name: Inject BPF Config
       run: |
-        echo "CONFIG_BPF=y" >> kernel/arch/arm64/configs/cupida_defconfig
-        echo "CONFIG_BPF_SYSCALL=y" >> kernel/arch/arm64/configs/cupida_defconfig
-        echo "CONFIG_BPF_JIT=y" >> kernel/arch/arm64/configs/cupida_defconfig
-        echo "CONFIG_DEBUG_INFO_BTF=y" >> kernel/arch/arm64/configs/cupida_defconfig
-        echo "CONFIG_BPF_EVENTS=y" >> kernel/arch/arm64/configs/cupida_defconfig
-        echo "CONFIG_BPF_RINGBUF=y" >> kernel/arch/arm64/configs/cupida_defconfig
-        echo "CONFIG_BPF_LINK=y" >> kernel/arch/arm64/configs/cupida_defconfig
-        echo "CONFIG_CGROUP_BPF=y" >> kernel/arch/arm64/configs/cupida_defconfig
+        echo "CONFIG_BPF=y" >> arch/arm64/configs/cupida_defconfig
+        echo "CONFIG_BPF_SYSCALL=y" >> arch/arm64/configs/cupida_defconfig
+        echo "CONFIG_BPF_JIT=y" >> arch/arm64/configs/cupida_defconfig
+        echo "CONFIG_DEBUG_INFO_BTF=y" >> arch/arm64/configs/cupida_defconfig
 
-    - name: Set up Proton Clang
+    - name: Setup Proton Clang Toolchain
       run: |
         mkdir -p $GITHUB_WORKSPACE/toolchain
         git clone --depth=1 https://github.com/kdrag0n/proton-clang.git $GITHUB_WORKSPACE/toolchain/proton-clang
 
-    - name: Build Kernel
-      working-directory: kernel
+    - name: Build Kernel via Script
       env:
         TOOLCHAIN: ${{ github.workspace }}/toolchain/proton-clang
       run: |
-        bash build_kernel.sh
+        chmod +x build_kernel.sh
+        ./build_kernel.sh
 
-    - name: Show errors on failure
+    - name: Extract Error Log
       if: failure()
-      run: grep -E "error:|fatal error:" kernel/build.log | head -30
+      run: grep -E "error:|fatal error:" build.log | head -30
 
-    - name: Print build log on failure
+    - name: Full Build Log
       if: failure()
-      run: tail -100 kernel/build.log
+      run: tail -100 build.log
 
-    - name: Upload Image.gz-dtb
+    - name: Upload Kernel Image
       uses: actions/upload-artifact@v4
       with:
         name: Image.gz-dtb
-        path: kernel/out/arch/arm64/boot/Image.gz-dtb
+        path: out/arch/arm64/boot/Image.gz-dtb
 
-    - name: Prepare AnyKernel3
+    - name: Prepare AnyKernel3 Flash Zip
       run: |
         git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git
-        cp kernel/out/arch/arm64/boot/Image.gz-dtb AnyKernel3/
+        cp out/arch/arm64/boot/Image.gz-dtb AnyKernel3/
         rm -rf AnyKernel3/.git
 
     - name: Upload Flashable Zip
